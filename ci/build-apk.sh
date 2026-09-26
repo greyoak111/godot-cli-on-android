@@ -205,6 +205,20 @@ sed -i \
   "$PRESET"
 grep -E '^keystore/|^package/unique_name|^gradle_build/use_gradle' "$PRESET" | sed 's/password=.*/password="***"/'
 
+# Godot 的 should_import_etc2_astc() 在项目未显式开启时会回退去看
+# **宿主 OS** 的首选纹理格式：Android 宿主天然满足，Linux 宿主则不满足。
+# 因此同一项目在本机(Android)能导出、在 CI(Linux)会以
+# "ETC2/ASTC texture compression is required" 中止。
+# 这里做一次保险：项目没开就自动补上，使项目可移植。
+if ! grep -q "import_etc2_astc" "$PROJECT/project.godot" 2>/dev/null; then
+  echo "  项目未开启 ETC2/ASTC，自动补上（否则 Linux 宿主上无法导出安卓）"
+  if grep -q "^\[rendering\]" "$PROJECT/project.godot"; then
+    printf "textures/vram_compression/import_etc2_astc=true\n" >> "$PROJECT/project.godot"
+  else
+    printf "\n[rendering]\ntextures/vram_compression/import_etc2_astc=true\n" >> "$PROJECT/project.godot"
+  fi
+fi
+
 # ---------------------------------------------------------------- 7. 导入
 log "导入项目资源"
 "$GODOT_DIR/godot" --headless --path "$PROJECT" --import || true
