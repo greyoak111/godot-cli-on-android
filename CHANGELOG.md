@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.1.0 — 打包可复用
+
+### 自足化
+- `scripts/stage.sh` 不再依赖任何预装环境：自己下载 Godot、
+  用仓库内置 `tools/tpkg.mjs` 从 Termux 仓库抽取 glibc/JDK/依赖、
+  打 libc 补丁、拉导出模板。**只需 node，无需 npm install。**
+- 新增 `tools/tpkg.mjs`（Termux .deb 抽取器）
+- 内置 `tools/vendor/xz-decompress`（71KB，纯 JS/WASM）——
+  Termux 的 deb 是 `data.tar.xz`，而安卓自带工具链（含 toybox）
+  没有任何 xz 解压器，这个依赖无法用系统工具替代
+- `tpkg` 支持 `TPKG_PREFIX` / `TPKG_CACHE` / `TPKG_STAGE` 覆盖
+
+### 上游文档草稿
+- `docs/upstream/issue-1-input-scan-crash.md` —— `/dev/input` 不可读时
+  编辑器以堆损坏崩溃（含 gdb 调用栈、`.eh_frame` 函数定位、字符串指纹）
+- `docs/upstream/issue-2-etc2-host-os.md` —— ETC2/ASTC 校验依赖宿主 OS
+
+### 文档
+- README 新增《安装（从零开始）》
+
 ## v1.0.1
 
 - 统一签名：CI 支持通过 `KEYSTORE_BASE64` Secret 使用仓库配置的密钥库，
