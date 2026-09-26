@@ -16,8 +16,8 @@
 
 set -euo pipefail
 
-# ---- 留痕：失败时把日志尾部写进 Step Summary（匿名 API 可读，便于远程排查）----
-LOG="$(mktemp)"
+# ---- 留痕：失败时把日志写进 Step Summary，并留在固定路径供工作流回传 ----
+LOG="${RUNNER_TEMP:-/tmp}/build.log"
 exec > >(tee "$LOG") 2>&1
 
 on_err() {
@@ -118,6 +118,24 @@ SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
 [ -d "$SDK" ] || SDK="$(ls -d /usr/lib/android-sdk /opt/android-sdk 2>/dev/null | head -1 || true)"
 [ -n "${SDK:-}" ] && [ -d "$SDK" ] || { echo "❌ 找不到 Android SDK"; ls -la /usr/local/lib/ 2>/dev/null; exit 1; }
 
+# ★ Godot 会逐个校验 SDK 里存在这些**确切**目录（见 editor/export/android_sdk_manager.cpp）:
+#     build-tools/36.1.0    platforms/android-36
+#   runner 预装的版本往往不是这两个；缺了就补装，否则导出会以
+#   "Unable to find Android SDK package '...'" 中止。
+NEED_BT="36.1.0"
+NEED_PLATFORM="android-36"
+if [ ! -d "$SDK/build-tools/$NEED_BT" ] || [ ! -d "$SDK/platforms/$NEED_PLATFORM" ]; then
+  echo "  缺少 build-tools/$NEED_BT 或 platforms/$NEED_PLATFORM，尝试用 sdkmanager 补装"
+  SDKMANAGER="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+  [ -n "$SDKMANAGER" ] || SDKMANAGER="$(command -v sdkmanager || true)"
+  if [ -n "$SDKMANAGER" ]; then
+    yes | "$SDKMANAGER" --sdk_root="$SDK" \
+      "build-tools;$NEED_BT" "platforms;$NEED_PLATFORM" "platform-tools" 2>&1 | tail -15 || true
+  else
+    echo "  ⚠️  找不到 sdkmanager，无法补装"
+  fi
+fi
+
 JAVA="${JAVA_HOME:-}"
 if [ -z "$JAVA" ]; then
   JC="$(command -v javac || true)"
@@ -129,7 +147,8 @@ echo "  SDK  = $SDK"
 echo "  JDK  = $JAVA"
 echo "  build-tools:"; ls "$SDK/build-tools" 2>/dev/null | sed 's/^/    /'
 echo "  platforms:";   ls "$SDK/platforms"   2>/dev/null | sed 's/^/    /'
-echo "  apksigner: $(ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | tail -1 || echo 缺)"
+echo "  platform-tools/adb: $([ -f "$SDK/platform-tools/adb" ] && echo 有 || echo 缺)"
+echo "  apksigner: $(ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || echo 缺)"
 
 # --------------------------------------------------------- 5. 编辑器设置
 log "写入 Godot 编辑器设置"

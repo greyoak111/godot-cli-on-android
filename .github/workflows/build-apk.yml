@@ -88,6 +88,29 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Actions 日志需 admin 权限才能通过 API 读取；把失败日志以 commit comment
+      # 形式回传（公开可读），便于远程 / 移动端排查。
+      - name: 失败时回传日志
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOG="${RUNNER_TEMP}/build.log"
+          [ -f "$LOG" ] || { echo "无日志文件"; exit 0; }
+          {
+            echo "### ❌ CI 构建失败"
+            echo ""
+            echo "commit \`${GITHUB_SHA:0:7}\` · run [#${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            echo ""
+            echo '```text'
+            tail -100 "$LOG" | sed 's/\x1b\[[0-9;]*m//g'
+            echo '```'
+          } > "${RUNNER_TEMP}/comment.md"
+          jq -Rs '{body: .}' < "${RUNNER_TEMP}/comment.md" > "${RUNNER_TEMP}/comment.json"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            --input "${RUNNER_TEMP}/comment.json" --jq '.html_url' \
+            || echo "回传日志失败（不影响构建结论）"
+
       # 打 tag 时顺便发 Release —— Release 附件在手机上点开就能下，比 Artifacts 方便
       - name: 发布 Release（仅打 tag 时）
         if: startsWith(github.ref, 'refs/tags/v')
