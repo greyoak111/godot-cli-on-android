@@ -1,0 +1,106 @@
+name: Build APK
+
+# 推代码 → 云端自动构建已签名的 Android APK → 下载安装
+#
+# 说明：CI 跑在 x86_64 Linux runner 上，用的是 Godot 官方 linux.x86_64 构建。
+# 本仓库本地那套（glibc 补丁 / shell 身份 / /dev/input）是「Termux 抽取的
+# 运行时 + 安卓沙箱」特有的问题，在 CI 上都不存在。
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'sample/**'
+      - 'scripts/**'
+      - 'tools/**'
+      - 'ci/**'
+      - '.github/workflows/build-apk.yml'
+  pull_request:
+    paths:
+      - 'sample/**'
+      - 'ci/**'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 要构建的项目目录
+        required: true
+        default: sample/mygame
+      build_type:
+        description: 构建类型
+        type: choice
+        options: [release, debug]
+        default: release
+
+env:
+  GODOT_VERSION: '4.7.2'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node（tpzfetch 远程取模板需要）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装 JDK 17（keytool / apksigner 需要）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Godot 本体 74MB + 导出模板 221MB，缓存后重跑只需几秒
+      - name: 缓存 Godot 与导出模板
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-${{ runner.os }}
+
+      - name: 构建 APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+        run: |
+          chmod +x ci/build-apk.sh
+          ci/build-apk.sh \
+            "${{ inputs.project || 'sample/mygame' }}" \
+            "$PWD/build/app.apk" \
+            "${{ inputs.build_type || 'release' }}"
+
+      - name: 上传 APK（Artifacts）
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ github.sha }}
+          path: build/app.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 打 tag 时顺便发 Release —— Release 附件在手机上点开就能下，比 Artifacts 方便
+      - name: 发布 Release（仅打 tag 时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${GITHUB_REF#refs/tags/}"
+          NAME="$(basename "${{ inputs.project || 'sample/mygame' }}")-${TAG}.apk"
+          cp build/app.apk "build/${NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "build/${NAME}" --clobber
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes "build/${NAME}"
+          fi
+          echo "### 📦 Release [$TAG](https://github.com/${{ github.repository }}/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
