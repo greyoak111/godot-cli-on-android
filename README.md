@@ -2,6 +2,11 @@
 
 > 让 **Godot 4.7.2 在没有 PC、没有 Termux、没有 root 的安卓设备上**完成
 > 项目导入 → APK 导出 → 签名 → 装机 → 运行 的全流程。
+>
+> **运行环境**：本项目是在 **[DeepSeek Harness 手机版](https://github.com/woaiys3/deepseek-harness-android-app)**
+> 里跑起来的 —— 它提供了 Shizuku 特权通道（`shell` 身份运行正是绕开 `/dev/input` 崩溃的关键）
+> 与文件访问权限。配套工具集见
+> **[deepseek-harness-android-tools](https://github.com/greyoak111/deepseek-harness-android-tools)**。
 
 ## 这是什么
 
@@ -268,6 +273,29 @@ Godot 的密钥库校验（调 `keytool`）失败 → 导出中止。
   （根因在 Godot 的错误处理路径，非本环境问题）
 - **Shizuku 重启后失效**，需要手动重新启动。
 - 未处理：3D 项目的资产管线（光照烘焙等）在移动端会比较吃力。
+
+## 鸣谢
+
+**运行环境（地基）**
+
+- **[woaiys3/deepseek-harness-android-app](https://github.com/woaiys3/deepseek-harness-android-app)**
+  —— DeepSeek Harness 手机版。本项目全程在它里面完成。
+  本方案里**最关键的"以 shell 身份运行"**，靠的正是它的 Shizuku 特权通道 ——
+  没有那条通道，Godot 编辑器会在 `/dev/input` 的错误路径上必崩。
+
+**上游**
+
+- **[Godot Engine](https://godotengine.org/)** —— 引擎本体。官方只发桌面端无头 CLI，本项目把它搬到了 Android。
+- **[Termux](https://termux.dev/)** —— 提供安卓上可用的 glibc 运行时与工具链。
+- **[Shizuku](https://shizuku.rikka.app/)** —— 免 root 拿到 `shell`(uid=2000) 权限。
+
+**配套**
+
+- **[deepseek-harness-android-tools](https://github.com/greyoak111/deepseek-harness-android-tools)**
+  —— 本仓库用到的 `tpkg.mjs` / `patchlibc.mjs` / `elfneed.mjs` 的正式归宿。
+- **[blender-cli-android](https://github.com/greyoak111/blender-cli-android)**
+  —— 姊妹项目：Blender 无头 CLI + GPU 加速渲染。
+  两者合起来是完整的移动端管线：`Blender → glTF → Godot → APK → 装回本机`。
 
 ## License
 
