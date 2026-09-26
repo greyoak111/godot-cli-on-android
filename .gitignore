@@ -1,0 +1,5 @@
+.godot/
+*.apk
+*.idsig
+*.import
+_stage/
