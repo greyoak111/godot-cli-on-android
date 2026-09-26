@@ -118,17 +118,40 @@ KEYSTORE="$RUNNER_TEMP/ci.keystore"
 KEYSTORE_PASS="${KEYSTORE_PASS:-android}"
 KEYSTORE_ALIAS="${KEYSTORE_ALIAS:-androiddebugkey}"
 
-if [ -n "${KEYSTORE_BASE64:-}" ]; then
-  printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
-  echo "使用仓库配置的密钥库"
-else
+gen_temp_keystore() {
   keytool -genkeypair -v \
     -keystore "$KEYSTORE" -storetype PKCS12 \
     -alias "$KEYSTORE_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
     -storepass "$KEYSTORE_PASS" -keypass "$KEYSTORE_PASS" \
     -dname "CN=CI Build,O=GitHub Actions,C=US" >/dev/null 2>&1
-  echo "⚠️  未配置 KEYSTORE_BASE64，已生成临时调试密钥库"
-  echo "    （APK 可正常安装，但无法覆盖由其它密钥签名的旧版本）"
+}
+
+USE_SECRET=0
+if [ -n "${KEYSTORE_BASE64:-}" ]; then
+  # Secret 常被复制成多行/带空格（编辑器换行、缩进），这里先清掉所有空白字符。
+  # 之前踩过：直接 base64 -d 会报 "base64: invalid input" 并让整个构建挂掉。
+  CLEAN="$(printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]')"
+  if printf '%s' "$CLEAN" | base64 -d > "$KEYSTORE" 2>/dev/null && [ -s "$KEYSTORE" ]; then
+    # 再验证它确实是个能被 keytool 读出来的密钥库
+    if keytool -list -keystore "$KEYSTORE" -storepass "$KEYSTORE_PASS" \
+         -alias "$KEYSTORE_ALIAS" >/dev/null 2>&1; then
+      USE_SECRET=1
+      echo "✅ 使用仓库配置的密钥库（KEYSTORE_BASE64）"
+      keytool -list -v -keystore "$KEYSTORE" -storepass "$KEYSTORE_PASS" -alias "$KEYSTORE_ALIAS" 2>/dev/null \
+        | grep -E "SHA256:|Owner:" | sed 's/^/    /'
+    else
+      echo "⚠️  KEYSTORE_BASE64 解出来不是有效密钥库（密码/别名不对？），改用临时密钥"
+      echo "    提示：默认密码 android、别名 androiddebugkey"
+    fi
+  else
+    echo "⚠️  KEYSTORE_BASE64 不是合法 base64（长度 ${#CLEAN}），改用临时密钥"
+  fi
+fi
+
+if [ "$USE_SECRET" != "1" ]; then
+  gen_temp_keystore
+  echo "⚠️  已生成临时调试密钥库 —— APK 可正常安装，"
+  echo "    但无法覆盖由其它密钥签名的旧版本（INSTALL_FAILED_UPDATE_INCOMPATIBLE）"
 fi
 ls -l "$KEYSTORE"
 
