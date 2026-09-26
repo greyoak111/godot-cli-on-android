@@ -16,17 +16,22 @@
 
 set -euo pipefail
 
-# ---- 留痕：失败时把日志写进 Step Summary，并留在固定路径供工作流回传 ----
+# ---- 留痕：全程写日志文件。直接重定向而非 tee —— 进程替换在异常退出时
+#      可能丢缓冲，会把最关键的失败现场吞掉（已踩过）。失败时再回吐到 stdout。----
+exec 3>&1
 LOG="${RUNNER_TEMP:-/tmp}/build.log"
-exec > >(tee "$LOG") 2>&1
+exec > "$LOG" 2>&1
 
 on_err() {
   local rc=$? line=$1
+  exec 1>&3 2>&3
+  printf '\n\033[1;31m❌ 构建失败（第 %s 行，退出码 %s）\033[0m\n' "$line" "$rc"
+  printf -- '---- 日志尾部 ----\n'
+  tail -80 "$LOG" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'
   {
-    printf '### ❌ 构建失败\n\n'
-    printf '第 **%s** 行，退出码 **%s**\n\n' "$line" "$rc"
+    printf '### ❌ 构建失败\n\n第 **%s** 行，退出码 **%s**\n\n' "$line" "$rc"
     printf '```text\n'
-    tail -80 "$LOG" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'
+    tail -100 "$LOG" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'
     printf '\n```\n'
   } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" 2>/dev/null || true
   exit "$rc"
@@ -58,6 +63,21 @@ echo "  JAVA_HOME           = ${JAVA_HOME:-<未设置>}"
 echo "  node                = $(command -v node || echo 缺失)  $(node -v 2>/dev/null)"
 echo "  curl/unzip/keytool  = $(command -v curl || echo 缺) / $(command -v unzip || echo 缺) / $(command -v keytool || echo 缺)"
 [ -d "$PROJECT" ] || { echo "❌ 项目目录不存在: $PROJECT"; ls -la; exit 1; }
+
+# Godot 的输入设备扫描在 /dev/input 不可读时会走进一条有堆损坏 bug 的
+# 错误路径（本地已在 4.7.2/4.5.1 上定位到：free(): invalid size）。
+# CI runner 上该目录可能压根不存在，先诊断，必要时建一个空目录 ——
+# 空目录能正常扫描（0 个设备），从而绕开那条错误路径。
+if [ -d /dev/input ]; then
+  echo "  /dev/input          = 存在，$(ls /dev/input 2>/dev/null | wc -l) 个条目，可读=$([ -r /dev/input ] && echo 是 || echo 否)"
+else
+  echo "  /dev/input          = 不存在"
+  if sudo -n mkdir -p /dev/input 2>/dev/null; then
+    echo "                        → 已创建空目录以绕开 Godot 的输入扫描错误路径"
+  else
+    echo "                        → 无法创建（无 sudo），继续尝试"
+  fi
+fi
 
 # ---------------------------------------------------------------- 1. Godot
 log "准备 Godot ${GODOT_VERSION}"
