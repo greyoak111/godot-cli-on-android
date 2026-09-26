@@ -228,6 +228,56 @@ Godot 的密钥库校验（调 `keytool`）失败 → 导出中止。
 
 ---
 
+## 资产管线（纹理与字体）
+
+导出 APK 前后有两个环节值得自动化，这两个工具**已在本机实测可用**：
+
+### ASTC / ETC2 纹理压缩 —— `astcenc`
+
+ARM 官方的 ASTC 压缩器。移动端纹理的关键一环。
+
+```sh
+# PNG → ASTC 4x4
+astcenc -cl input.png output.astc 4x4 -medium
+
+# 解压回 PNG 检查
+astcenc -dl output.astc back.png 4x4
+```
+
+| 项 | 值 |
+|---|---|
+| 版本 | astcenc 5.7.0（**neon 变体**） |
+| 体积 | 3.7 MB |
+| 来源 | [ARM-software/astc-encoder](https://github.com/ARM-software/astc-encoder) Releases 的 `linux-arm64` |
+
+> ⚠️ **本机是 ARMv8.2，没有 SVE。**
+> 官方包里的 `astcenc-sve_128` / `astcenc-sve_256` 会直接报
+> `Host does not support SVE ISA extension` —— **只能用 neon 版**。
+
+### 字体子集化 —— `fonttools`
+
+中文字体动辄 10 MB+，子集化后常常只剩几百 KB。**对游戏包体是数量级的差别。**
+
+```sh
+# 只保留用到的字
+printf "开始游戏设置退出" > chars.txt
+pyftsubset SourceHanSans.ttf --text-file=chars.txt --output-file=subset.ttf
+```
+
+| 项 | 值 |
+|---|---|
+| 版本 | fonttools 4.57.0 |
+| 来源 | Debian `fonttools` 包 |
+| 实测 | **692 KB → 4 KB**（砍掉 99.4%） |
+
+### 其余可用工具
+
+图片批处理用 `magick`（ImageMagick 7），
+完整的可用性矩阵见
+[deepseek-harness-android-tools/docs/cli-availability.md](https://github.com/greyoak111/deepseek-harness-android-tools/blob/main/docs/cli-availability.md)。
+
+---
+
 ## 环境参数
 
 | 项目 | 值 |
