@@ -36,17 +36,38 @@ Godot 官方只提供桌面端的无头 CLI。这个项目把它搬到了 Androi
 
 ---
 
-## 快速开始
+## 安装（从零开始）
+
+前置：Android 11+ arm64、[Shizuku](https://shizuku.rikka.app/)、
+一个能跑 `node` 的身份、网络、约 3GB 空闲空间。
 
 ```sh
-S=/sdcard/DeepSeekHarness/godot/scripts
+git clone <本仓库> && cd godot-cli-on-android
+
+# 1) 应用侧暂存 —— 下载 Godot、用 tpkg 抽取 glibc/JDK、给 libc 打补丁、拉模板
+sh scripts/stage.sh
+
+# 2) shell 侧部署 —— 必须以 shell 身份（Shizuku），导出依赖 /dev/input 读权限
+sh scripts/setup.sh
+
+# 3) 体检
+sh scripts/doctor.sh
+```
+
+> `stage.sh` 需要 node（用于 tpkg / patchlibc / tpzfetch，全部内置在本仓库，
+> **不需要 npm install**）。若你的应用身份跑不了 node，可在 Termux 里执行第 1 步。
+> 第 2 步必须在 shell 身份下。
+
+装好之后：
+
+```sh
+S=scripts   # 或 /sdcard/DeepSeekHarness/godot/scripts
 
 sh $S/new.sh mygame com.dsh.mygame   # 1. 建项目
 sh $S/export.sh mygame               # 2. 导出（自动提权到 shell）
 sh $S/run.sh mygame                  # 3. 装机 + 运行 + 截图
 
 sh $S/doctor.sh                      # 环境体检（22 项）
-sh $S/setup.sh --check               # 看暂存区/执行层状态
 ```
 
 另外提供了一个 **`godot` 命令**（任意身份调用，自动提权到 shell）：
@@ -126,8 +147,11 @@ sh /sdcard/DeepSeekHarness/godot/scripts/setup.sh
 sh /sdcard/DeepSeekHarness/godot/scripts/doctor.sh
 ```
 
-`stage.sh` 会从应用私有目录取出 godot 二进制 / glibc / JDK / 依赖库，
-**并自动给 libc 重新打补丁**（见下）。
+`stage.sh` 是**自足**的：它自己下载 Godot、用仓库内置的 `tools/tpkg.mjs`
+从 Termux 仓库抽取 glibc / JDK / 依赖库，**并自动给 libc 重新打补丁**（见下）。
+不依赖任何预装环境，只需要 node。
+
+若只想重建执行层而不想重新下载（暂存区还在），直接跑第 2 步即可。
 
 ---
 
@@ -224,6 +248,19 @@ Godot 的密钥库校验（调 `keytool`）失败 → 导出中止。
 | `tools/tpzfetch.mjs` | **远程 ZIP 局部下载**——只取压缩包里需要的条目<br>（用它从 1.2GB 的 Godot 导出模板包里只下了 426MB，省掉 0.78GB 传输） |
 
 ---
+
+## 上游文档（草稿）
+
+`docs/upstream/` 下是两份准备提交给 Godot 上游的报告草稿，
+记录了本次排查中发现的、可能与平台无关的问题：
+
+| 草稿 | 内容 |
+|---|---|
+| [issue-1-input-scan-crash.md](docs/upstream/issue-1-input-scan-crash.md) | `/dev/input` 不可读时编辑器以堆损坏崩溃（含 gdb 调用栈、函数定位过程） |
+| [issue-2-etc2-host-os.md](docs/upstream/issue-2-etc2-host-os.md) | ETC2/ASTC 校验依赖**宿主 OS**，但提示信息未说明 |
+
+> 关联：上游 [issue #123504](https://github.com/godotengine/godot/issues/123504) 修复了
+> "配置错误信息空白"的问题 —— 我们正是靠着这个修复才能在三天内定位到 ETC2 那个坑。
 
 ## 已知边界
 

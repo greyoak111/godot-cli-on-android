@@ -1,5 +1,16 @@
+# Godot 导入产物
 .godot/
+*.import
+
+# 构建产物
 *.apk
 *.idsig
-*.import
+
+# bootstrap 工作目录（stage.sh 使用，含 1GB 级中间文件）
+.bootstrap/
+tools/prefix/
+tools/debs/
+tools/stage/
+
+# 暂存区
 _stage/
