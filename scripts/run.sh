@@ -9,7 +9,14 @@
 # 注: 包名默认 com.dsh.<项目名>
 
 if [ "$(id -u)" != "2000" ]; then
-	PRIV=/data/user/0/com.deepseek.harness/files/payload/bin/priv
+	# 提权工具在各宿主体内的位置不一样，按序找：
+	#   1) 宿主导出的 CCAPP_BIN（把自带小工具放在那里）
+	#   2) 历史路径（DeepSeek Harness）
+	#   3) PATH 里的 priv
+	PRIV=""
+	[ -n "$CCAPP_BIN" ] && [ -x "$CCAPP_BIN/priv" ] && PRIV="$CCAPP_BIN/priv"
+	[ -x "$PRIV" ] || PRIV=/data/user/0/com.deepseek.harness/files/payload/bin/priv
+	[ -x "$PRIV" ] || PRIV=$(command -v priv 2>/dev/null)
 	if [ -x "$PRIV" ]; then
 		exec "$PRIV" "sh $0 $*"
 	else
@@ -18,7 +25,7 @@ if [ "$(id -u)" != "2000" ]; then
 	fi
 fi
 
-DATA=/sdcard/DeepSeekHarness/godot
+DATA="${GODOT_DATA:-/sdcard/DeepSeekHarness/godot}"
 NAME="$1"
 ACT="${2:-}"
 

@@ -3,7 +3,7 @@
 # 用法: sh doctor.sh
 
 G=/data/local/tmp/dshgodot
-DATA=/sdcard/DeepSeekHarness/godot
+DATA="${GODOT_DATA:-/sdcard/DeepSeekHarness/godot}"
 OK=0; BAD=0
 chk() { # chk <描述> <命令...>
 	desc="$1"; shift
@@ -24,7 +24,11 @@ echo "【执行层 $G】"
 chk "godot 二进制"        test -x $G/godot
 chk "glibc loader"        test -f $G/glibclib/ld-linux-aarch64.so.1
 chk "glibc libc.so.6"     test -f $G/glibclib/libc.so.6
-chk "libc 已打补丁"       grep -q "dshgodot" $G/glibclib/libc.so.6 2>/dev/null
+# ⚠️ 不能直接 `grep -q dshgodot libc.so.6`：shell 侧的 grep 是 /system/bin/grep
+# （toybox），对这个 2.3MB 的二进制**匹配不到**，会报假阴性 —— 而补丁其实是好的
+# （应用侧用 GNU grep 或 node 读同一文件都能找到）。先把 NUL 换成换行再 grep 才可靠，
+# 实测能数出 7 处，正好等于 patchlibc 报告的替换数。
+chk "libc 已打补丁"       sh -c "tr '\0' '\n' < $G/glibclib/libc.so.6 | grep -q dshgodot"
 chk "popen shell"         test -x $G/fakebin/sh
 chk "tmp 目录"            test -d $G/tmp
 chk "JDK17"               test -x $G/jvm/bin/java

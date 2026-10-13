@@ -49,13 +49,21 @@ if [ ! -f "$STAGE/godot" ]; then
   rm -f "$ZIP"
 fi
 ls -l "$STAGE/godot" | awk '{printf "  %.0f MB\n", $5/1048576}'
+# Godot 的临时目录在源码里写死成 "/tmp"，而安卓的 / 是只读挂载、多数设备没有 /tmp。
+# 不补这一刀，导出会在保存 PCK 时中止、**不产出 APK**。详见 tools/patchgodot.mjs
+node "$REPO/tools/patchgodot.mjs" "$STAGE/godot"
 
 # ------------------------------------------------- 2. Termux 包（glibc/JDK/库）
 echo "=== 2/6 抽取 Termux 包（glibc + OpenJDK17 + 依赖）==="
 echo "  （约 600MB 下载，解包后约 1GB，请耐心）"
+# ⚠️ fontconfig 必须用 fontconfig-**glibc**。
+# 不带后缀的 fontconfig 来自 Termux 的 main 仓库，是 **bionic** 构建
+# （DT_NEEDED 写的是 libc.so，符号版本是 LIBC）。它会被 dlopen 进 glibc 的
+# Godot 进程，加载不了 —— 字体相关的整条链都起不来。
+# 属于「两套 C 运行时不能混」那一类。
 TPKG_PREFIX="$WORK/prefix" TPKG_CACHE="$WORK/debs" TPKG_STAGE="$WORK/tpkgs" \
   node "$REPO/tools/tpkg.mjs" install \
-    glibc openjdk-17 fontconfig libandroid-shmem libandroid-support 2>&1 | tail -6
+    glibc openjdk-17 fontconfig-glibc libandroid-shmem libandroid-support 2>&1 | tail -6
 
 P="$WORK/prefix"
 [ -d "$P/glibc/lib" ] || { echo "❌ glibc 未就位"; exit 1; }
@@ -64,7 +72,14 @@ P="$WORK/prefix"
 # ------------------------------------------------------------ 3. glibc + 补丁
 echo "=== 3/6 暂存 glibc 并打补丁 ==="
 rm -rf "$STAGE/glibclib"
-cp -RL "$P/glibc/lib" "$STAGE/glibclib"
+# -L 是为了解引用（/sdcard 不支持符号链接），但 glibc 包的 lib/terminfo/ 下
+# 有一堆**指向硬编码 Termux 路径的绝对软链**：
+#     z-100 -> /data/data/com.termux/files/usr/glibc/share/terminfo/h/h-100
+# 在本机不存在 → cp 报错并非零退出，配合 set -e 会**直接中断整个暂存**。
+# 那是终端数据库，运行 Godot 用不到，所以容忍；但下面显式校验关键文件到位，
+# 免得"静默少拷了东西"却一路走到后面才炸。
+cp -RL "$P/glibc/lib" "$STAGE/glibclib" 2>/dev/null || true
+[ -f "$STAGE/glibclib/libc.so.6" ] || { echo "❌ glibc 暂存失败（缺 libc.so.6）"; exit 1; }
 # /sdcard 不支持符号链接，故用 -L 解引用；SONAME 链接由 setup.sh 在目标位置重建
 node "$REPO/tools/patchlibc.mjs" "$STAGE/glibclib/libc.so.6" "$STAGE/glibclib/libc.so.6" | tail -3
 echo "  补丁后校验:"

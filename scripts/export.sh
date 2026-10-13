@@ -13,7 +13,14 @@
 
 # 必须以 shell 身份运行（Shizuku）；否则自动提权重跑
 if [ "$(id -u)" != "2000" ]; then
-	PRIV=/data/user/0/com.deepseek.harness/files/payload/bin/priv
+	# 提权工具在各宿主体内的位置不一样，按序找：
+	#   1) 宿主导出的 CCAPP_BIN（把自带小工具放在那里）
+	#   2) 历史路径（DeepSeek Harness）
+	#   3) PATH 里的 priv
+	PRIV=""
+	[ -n "$CCAPP_BIN" ] && [ -x "$CCAPP_BIN/priv" ] && PRIV="$CCAPP_BIN/priv"
+	[ -x "$PRIV" ] || PRIV=/data/user/0/com.deepseek.harness/files/payload/bin/priv
+	[ -x "$PRIV" ] || PRIV=$(command -v priv 2>/dev/null)
 	if [ -x "$PRIV" ]; then
 		exec "$PRIV" "sh $0 $*"
 	else
@@ -23,7 +30,7 @@ if [ "$(id -u)" != "2000" ]; then
 fi
 
 G=/data/local/tmp/dshgodot
-DATA=/sdcard/DeepSeekHarness/godot
+DATA="${GODOT_DATA:-/sdcard/DeepSeekHarness/godot}"
 LOADER=$G/glibclib/ld-linux-aarch64.so.1
 LIBS=$G/glibclib:$G/lib
 
@@ -53,12 +60,15 @@ export XDG_CACHE_HOME=$G/home/.cache
 export LD_LIBRARY_PATH=$G/lib:$G/jvm/lib
 export PATH=$G/fakebin:$PATH
 mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$G/tmp"
+# Godot 的临时目录被 tools/patchgodot.mjs 改成了相对路径（安卓没有可写的 /tmp），
+# 所以必须 cd 到可写目录，否则保存 PCK 时建不了临时文件、导出中止。
+cd "$G/tmp" 2>/dev/null || cd /data/local/tmp
 
 # 没有预设就自动生成
 if [ ! -f "$PROJ/export_presets.cfg" ]; then
 	echo "→ 未找到导出预设，自动生成"
 	[ -z "$PKG" ] && PKG="com.dsh.$NAME"
-	sed "s|@PKG@|$PKG|; s|@NAME@|$NAME|" "$DATA/scripts/preset.template" > "$PROJ/export_presets.cfg"
+	sed "s|@PKG@|$PKG|; s|@NAME@|$NAME|; s|@DATA@|$DATA|" "$DATA/scripts/preset.template" > "$PROJ/export_presets.cfg"
 fi
 
 # 首次导入

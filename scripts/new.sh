@@ -4,7 +4,7 @@
 # 用法: sh new.sh <项目名> [包名]
 # 产出: /sdcard/DeepSeekHarness/godot/projects/<项目名>/
 
-DATA=/sdcard/DeepSeekHarness/godot
+DATA="${GODOT_DATA:-/sdcard/DeepSeekHarness/godot}"
 NAME="$1"
 PKG="${2:-com.dsh.$NAME}"
 
@@ -66,7 +66,7 @@ cat > "$P/main.tscn" <<'EOF'
 script = ExtResource("1_main")
 EOF
 
-sed "s|@PKG@|$PKG|; s|@NAME@|$NAME|" "$DATA/scripts/preset.template" > "$P/export_presets.cfg"
+sed "s|@PKG@|$PKG|; s|@NAME@|$NAME|; s|@DATA@|$DATA|" "$DATA/scripts/preset.template" > "$P/export_presets.cfg"
 
 echo "✅ 项目已创建: $P"
 echo "   包名: $PKG"

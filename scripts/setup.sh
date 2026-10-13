@@ -9,7 +9,7 @@
 
 set -e
 G=/data/local/tmp/dshgodot
-DATA=/sdcard/DeepSeekHarness/godot
+DATA="${GODOT_DATA:-/sdcard/DeepSeekHarness/godot}"
 STAGE=$DATA/_stage
 
 echo "════ Godot 执行层重建 ════"
@@ -126,6 +126,40 @@ if [ ! -f "$DATA/keystore/debug.keystore" ]; then
 	echo "  ✓ 已生成"
 else
 	echo "  ✓ 已存在"
+fi
+
+echo "=== 11) 临时目录：开启自足模式 ==="
+# Godot 编辑器建临时目录时走 EditorPaths，普通模式下取 OS::get_temp_path()，
+# 而那个函数在源码里**写死返回 "/tmp"**（drivers/unix/os_unix.cpp）。安卓的 /
+# 是只读挂载、多数设备没有 /tmp，于是 create_temp_dir() 失败 → paths_valid=false →
+# **EditorSettings 整个不加载**（editor_settings.cpp:1398 的 `if (are_paths_valid())`）。
+# 表现出来是一串极具误导性的报错：
+#     A valid Java SDK path is required in Editor Settings.
+#     Invalid Android SDK path in Editor Settings. Missing 'platform-tools' directory!
+# 自足模式（二进制旁放一个 `._sc_`）把 data/config/cache/temp 全挪到 data_dir/temp，
+# 彻底不碰 /tmp。
+#
+# ⚠️ 标记必须放在 **glibclib/** 下，不能放 $G：Godot 用 /proc/self/exe 推 exe_path，
+#    而我们是 `ld-linux … godot` 这样启动的，/proc/self/exe 指向的是 ld-linux，
+#    不是 godot —— 放 $G 下不会被识别。
+mkdir -p $G/glibclib/editor_data
+touch $G/glibclib/._sc_
+ln -sfn $DATA/templates $G/glibclib/editor_data/export_templates
+# 自足模式下 config_dir == data_dir，所以设置文件要放这里（不是 home/.config 下）
+cp -f $G/home/.config/godot/editor_settings-4.7.tres $G/glibclib/editor_data/ 2>/dev/null || true
+echo "  ✓ ._sc_ + editor_data（编辑器不再依赖 /tmp）"
+
+echo "=== 12) 无头 CLI 实体 ==="
+# 应用侧的 `godot` 命令只是提权入口，实体脚本在这儿（shell 侧）。
+# 原来这步靠宿主环境自己准备，于是 $G 被清空重建后 `godot` 命令会指向一个
+# 不存在的文件，报的是完全指不到原因的错误：
+#     priv: 起进程失败：java.lang.reflect.InvocationTargetException
+if [ -f "$DATA/scripts/cli.sh" ]; then
+	cp -f "$DATA/scripts/cli.sh" $G/cli.sh
+	chmod 755 $G/cli.sh
+	echo "  ✓ $G/cli.sh"
+else
+	echo "  ⚠️  找不到 $DATA/scripts/cli.sh，跳过（godot 命令会不可用）"
 fi
 
 chmod -R 777 $G 2>/dev/null || true
