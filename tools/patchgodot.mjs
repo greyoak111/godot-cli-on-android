@@ -24,11 +24,12 @@
 //
 // ## 做法
 //
-// 把那个字符串字面量 `/tmp` 原地换成 `.`（NUL 补齐，长度不变、不破坏任何偏移）。
-// `path_join(".")` 得到的是相对路径，于是临时文件落到**当前工作目录** ——
+// 把那个字符串字面量 `/tmp` 原地换成 `.///`（等长，不破坏任何偏移；为什么不是 `.` + NUL 见下）。
+// 作为路径它就等于 `.`，得到的是相对路径，于是临时文件落到**当前工作目录** ——
 // 启动器里 cd 到可写目录即可（cli.sh / export.sh 已处理）。
 //
-// 该字面量在 38MB 的二进制里**只出现 1 次**，脚本会断言这一点，不满足就拒绝改。
+// 该字面量在约 138MB 的二进制（4.7.2 linux.arm64）里**只出现 1 次**，且是独立字符串
+// （前一字节是 NUL）。脚本会断言这两点，不满足就拒绝改。
 //
 // 用法: node tools/patchgodot.mjs <godot 二进制> [--check]
 
@@ -69,6 +70,15 @@ if (count !== 1) {
 }
 
 const off = buf.indexOf(NEEDLE);
+// 还得是**独立字符串**：链接器会做尾部合并，"/tmp" 可能只是 "/var/tmp" 之类更长字符串的尾巴。
+// 那种情况下原地改会把那个字符串一起改坏。前一字节必须是 NUL（或文件开头）。
+if (off > 0 && buf[off - 1] !== 0) {
+	let s = off;
+	while (s > 0 && buf[s - 1] >= 0x20 && buf[s - 1] < 0x7f) s--;
+	console.error(`⚠️ 唯一的 /tmp 是另一个字符串的尾部：${JSON.stringify(buf.subarray(s, off + 4).toString())}，不敢改。`);
+	console.error("   这个 Godot 版本需要重新确认补丁点。");
+	process.exit(1);
+}
 if (checkOnly) {
 	console.log(`未打补丁（可以打）: ${path}  @0x${off.toString(16)}`);
 	process.exit(0);
